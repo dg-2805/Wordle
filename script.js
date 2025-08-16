@@ -11,6 +11,13 @@ class WordleGame {
         this.gameOver = false;
         this.completedBoards = new Set();
 
+        // Game statistics
+        this.stats = this.loadStats();
+
+        // Settings
+        this.settings = this.loadSettings();
+        console.log('Loaded settings:', this.settings);
+
         this.setupModal = document.getElementById('setup-modal');
         this.boardsContainer = document.getElementById('boards-container');
         this.keyboard = document.getElementById('keyboard');
@@ -21,12 +28,44 @@ class WordleGame {
         this.gameOverWord = document.getElementById('game-over-word');
         this.gameTitle = document.getElementById('game-title');
 
+        // Modal elements
+        this.statsModal = document.getElementById('stats-modal');
+        this.helpModal = document.getElementById('help-modal');
+
         this.showSetupModal();
         this.setupEventListeners();
+        this.updateNavbarButtons();
+        console.log('Constructor completed. Theme should be applied.');
+    }
+
+    loadStats() {
+        const saved = localStorage.getItem('wordle-stats');
+        return saved ? JSON.parse(saved) : {
+            gamesPlayed: 0,
+            gamesWon: 0,
+            currentStreak: 0,
+            maxStreak: 0,
+            guessDistribution: {}
+        };
+    }
+
+    saveStats() {
+        localStorage.setItem('wordle-stats', JSON.stringify(this.stats));
+    }
+
+    loadSettings() {
+        const saved = localStorage.getItem('wordle-settings');
+        return saved ? JSON.parse(saved) : {
+            hardMode: false
+        };
+    }
+
+    saveSettings() {
+        localStorage.setItem('wordle-settings', JSON.stringify(this.settings));
     }
 
     showSetupModal() {
-        this.hideGameOverModal(); // Hide game over modal first
+        this.hideAllModals();
         this.setupModal.style.display = 'flex';
         this.updateAttemptsInfo();
     }
@@ -35,17 +74,50 @@ class WordleGame {
         this.setupModal.style.display = 'none';
     }
 
+    hideAllModals() {
+        this.setupModal.style.display = 'none';
+        this.statsModal.style.display = 'none';
+        this.helpModal.style.display = 'none';
+        this.gameOverModal.style.display = 'none';
+    }
+
     setupEventListeners() {
+        // Setup modal events
         document.getElementById('start-game-btn').addEventListener('click', () => {
             this.startGame();
         });
 
         document.getElementById('new-game-btn').addEventListener('click', () => {
+            this.resetGame();
             this.showSetupModal();
         });
 
         document.getElementById('play-again-btn').addEventListener('click', () => {
+            this.resetGame();
             this.showSetupModal();
+        });
+
+        // Navbar button events
+        document.getElementById('stats-btn').addEventListener('click', () => {
+            this.showStatsModal();
+        });
+
+        document.getElementById('help-btn').addEventListener('click', () => {
+            this.showHelpModal();
+        });
+
+        // Toggle button events
+        document.getElementById('hard-mode-btn').addEventListener('click', () => {
+            this.toggleHardMode();
+        });
+
+        // Modal close events
+        document.getElementById('close-stats').addEventListener('click', () => {
+            this.hideAllModals();
+        });
+
+        document.getElementById('close-help').addEventListener('click', () => {
+            this.hideAllModals();
         });
 
         // Update attempts info when selections change
@@ -53,20 +125,21 @@ class WordleGame {
             this.updateAttemptsInfo();
         });
 
+        // Close modals when clicking outside
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal') || e.target.classList.contains('setup-modal')) {
+                this.hideAllModals();
+            }
+        });
+
         document.addEventListener('keydown', (e) => {
             const key = e.key.toUpperCase();
 
-            // Handle game over modal
-            if (this.gameOver && this.gameOverModal.style.display === 'flex') {
-                if (key === 'ENTER') {
-                    this.showSetupModal();
-                }
-                return;
-            }
-
-            // Handle setup modal
-            if (this.setupModal.style.display === 'flex') {
-                if (key === 'ENTER') {
+            // Handle modals
+            if (this.isAnyModalOpen()) {
+                if (key === 'ESCAPE') {
+                    this.hideAllModals();
+                } else if (key === 'ENTER' && this.setupModal.style.display === 'flex') {
                     this.startGame();
                 }
                 return;
@@ -83,6 +156,61 @@ class WordleGame {
                 this.handleKeyPress(key);
             }
         });
+
+        // Apply initial settings
+        this.applySettings();
+    }
+
+    resetGame() {
+        // Reset all game state
+        this.currentWords = [];
+        this.currentRow = 0;
+        this.currentCol = 0;
+        this.gameOver = false;
+        this.completedBoards.clear();
+        
+        // Clear UI
+        this.clearMessage();
+        this.hideAllModals();
+        
+        // Clear boards and keyboard
+        if (this.boardsContainer) {
+            this.boardsContainer.innerHTML = '';
+        }
+        if (this.keyboard) {
+            this.keyboard.innerHTML = '';
+        }
+    }
+
+    isAnyModalOpen() {
+        return this.setupModal.style.display === 'flex' ||
+               this.statsModal.style.display === 'flex' ||
+               this.helpModal.style.display === 'flex' ||
+               this.gameOverModal.style.display === 'flex';
+    }
+
+    showStatsModal() {
+        this.hideAllModals();
+        this.updateStatsDisplay();
+        this.statsModal.style.display = 'flex';
+    }
+
+    showHelpModal() {
+        this.hideAllModals();
+        this.helpModal.style.display = 'flex';
+    }
+
+    updateStatsDisplay() {
+        document.getElementById('games-played').textContent = this.stats.gamesPlayed;
+        document.getElementById('win-rate').textContent = this.stats.gamesPlayed > 0 
+            ? Math.round((this.stats.gamesWon / this.stats.gamesPlayed) * 100) + '%'
+            : '0%';
+        document.getElementById('current-streak').textContent = this.stats.currentStreak;
+        document.getElementById('max-streak').textContent = this.stats.maxStreak;
+    }
+
+    applySettings() {
+        this.updateNavbarButtons();
     }
 
     updateAttemptsInfo() {
@@ -103,31 +231,57 @@ class WordleGame {
     }
 
     async startGame() {
-        this.wordLength = 5; // Fixed to 5 letters
-        this.boardCount = parseInt(document.getElementById('board-count').value);
+        try {
+            // Show loading state
+            this.showMessage('Loading new game...', 'info');
+            
+            this.wordLength = 5; // Fixed to 5 letters
+            this.boardCount = parseInt(document.getElementById('board-count').value);
 
-        // Calculate max attempts based on board count
-        this.maxAttempts = this.calculateMaxAttempts();
+            // Validate board count
+            if (![1, 2, 4, 8].includes(this.boardCount)) {
+                this.showMessage('Invalid game mode selected!', 'error');
+                return;
+            }
 
-        this.currentWords = [];
-        for (let i = 0; i < this.boardCount; i++) {
-            this.currentWords.push(await this.getValidRandomWord());
+            // Calculate max attempts based on board count
+            this.maxAttempts = this.calculateMaxAttempts();
+
+            // Reset game state
+            this.currentWords = [];
+            this.currentRow = 0;
+            this.currentCol = 0;
+            this.gameOver = false;
+            this.completedBoards.clear();
+
+            // Generate words for all boards
+            const wordPromises = [];
+            for (let i = 0; i < this.boardCount; i++) {
+                wordPromises.push(this.getValidRandomWord());
+            }
+
+            // Wait for all words to be generated
+            this.currentWords = await Promise.all(wordPromises);
+
+            // Update UI
+            this.updateGameTitle();
+            this.createBoards();
+            this.createKeyboard();
+            this.updateAttemptsDisplay();
+            this.clearMessage();
+            this.hideAllModals();
+
+            // Clear any previous game state
+            this.clearKeyboardState();
+
+            console.log('Target words:', this.currentWords); // For debugging
+            console.log('Game mode:', this.getGameModeName());
+            console.log('Max attempts:', this.maxAttempts);
+            
+        } catch (error) {
+            console.error('Error starting game:', error);
+            this.showMessage('Error starting game. Please try again.', 'error');
         }
-
-        this.currentRow = 0;
-        this.currentCol = 0;
-        this.gameOver = false;
-        this.completedBoards.clear();
-
-        this.updateGameTitle();
-        this.createBoards();
-        this.createKeyboard();
-        this.updateAttemptsDisplay();
-        this.clearMessage();
-        this.hideGameOverModal();
-        this.hideSetupModal();
-
-        console.log('Target words:', this.currentWords); // For debugging
     }
 
     calculateMaxAttempts() {
@@ -157,27 +311,55 @@ class WordleGame {
     }
 
     async getValidRandomWord() {
-        while (true) {
+        const maxAttempts = 10; // Prevent infinite loops
+        let attempts = 0;
+        
+        while (attempts < maxAttempts) {
             try {
                 // Get a random 5-letter word from Random Word API
                 const res = await fetch('https://random-word-api.herokuapp.com/word?length=5&number=1');
+                
+                if (!res.ok) {
+                    throw new Error('API request failed');
+                }
+                
                 const data = await res.json();
                 const word = data[0].toUpperCase();
+
+                // Basic validation
+                if (!word || word.length !== 5 || !/^[A-Z]{5}$/.test(word)) {
+                    attempts++;
+                    continue;
+                }
 
                 // Check with dictionary API
                 const valid = await this.isValidWord(word);
                 if (valid) {
-                    return word; // ✅ Only return if it’s actually in the dictionary
+                    return word;
                 }
+                
+                attempts++;
             } catch (err) {
-                console.error("API failed, using fallback word");
-                // Fallback to a safe word from your list
-                const fallbackList = ["APPLE", "MANGO", "GRAPE", "BERRY", "PEACH"];
-                return fallbackList[Math.floor(Math.random() * fallbackList.length)];
+                console.warn("API failed, using fallback word");
+                attempts++;
+                
+                // Use fallback after a few failed attempts
+                if (attempts >= 3) {
+                    const fallbackList = [
+                        "APPLE", "BEACH", "CHAIR", "DREAM", "EARTH", 
+                        "FLAME", "GRAPE", "HEART", "IMAGE", "JUICE", 
+                        "KNIFE", "LEMON", "MUSIC", "NIGHT", "OCEAN", 
+                        "PEACE", "QUEEN", "RADIO", "SMILE", "TABLE"
+                    ];
+                    return fallbackList[Math.floor(Math.random() * fallbackList.length)];
+                }
             }
         }
+        
+        // Final fallback if all else fails
+        const finalFallback = ["APPLE", "BEACH", "CHAIR", "DREAM", "EARTH"];
+        return finalFallback[Math.floor(Math.random() * finalFallback.length)];
     }
-
 
     createBoards() {
         this.boardsContainer.innerHTML = '';
@@ -201,6 +383,14 @@ class WordleGame {
             board.dataset.boardNumber = `Board ${boardIndex + 1}`;
             board.style.gridTemplateColumns = `repeat(${this.wordLength}, 1fr)`;
 
+            // Add board title for multi-board games
+            if (this.boardCount > 1) {
+                const boardTitle = document.createElement('div');
+                boardTitle.className = 'board-title';
+                boardTitle.textContent = `Board ${boardIndex + 1}`;
+                board.appendChild(boardTitle);
+            }
+
             for (let row = 0; row < this.maxAttempts; row++) {
                 for (let col = 0; col < this.wordLength; col++) {
                     const tile = document.createElement('div');
@@ -214,6 +404,9 @@ class WordleGame {
 
             this.boardsContainer.appendChild(board);
         }
+
+        // Add some visual feedback
+        console.log(`Created ${this.boardCount} board(s) with ${this.maxAttempts} attempts each`);
     }
 
     createKeyboard() {
@@ -298,6 +491,12 @@ class WordleGame {
             return;
         }
 
+        // Check hard mode if enabled
+        if (this.settings.hardMode && !this.isValidHardModeGuess(guess)) {
+            this.showMessage('Must use revealed hints!', 'error');
+            return;
+        }
+
         // Evaluate guess for all active boards
         for (let boardIndex = 0; boardIndex < this.boardCount; boardIndex++) {
             if (!this.completedBoards.has(boardIndex)) {
@@ -321,11 +520,14 @@ class WordleGame {
         if (allCompleted) {
             this.gameOver = true;
             const attemptsUsed = this.currentRow + 1;
+            this.updateStats(true, attemptsUsed);
             this.showGameOverModal('Congratulations!', `You won all boards in ${attemptsUsed} attempts!`);
         } else if (this.currentRow === this.maxAttempts - 1) {
             this.gameOver = true;
             const completedCount = this.completedBoards.size;
             const totalBoards = this.boardCount;
+
+            this.updateStats(completedCount > 0, this.maxAttempts);
 
             if (completedCount > 0) {
                 // Partial win - show completed and remaining words
@@ -343,6 +545,51 @@ class WordleGame {
         }
     }
 
+    isValidHardModeGuess(guess) {
+        // Check if the guess uses all revealed hints from previous rows
+        for (let row = 0; row < this.currentRow; row++) {
+            for (let boardIndex = 0; boardIndex < this.boardCount; boardIndex++) {
+                if (this.completedBoards.has(boardIndex)) continue;
+
+                for (let col = 0; col < this.wordLength; col++) {
+                    const tile = this.getTile(row, col, boardIndex);
+                    if (tile.classList.contains('correct')) {
+                        // Letter must be in the same position
+                        if (guess[col] !== tile.textContent) {
+                            return false;
+                        }
+                    } else if (tile.classList.contains('present')) {
+                        // Letter must be used somewhere
+                        if (!guess.includes(tile.textContent)) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    updateStats(won, attempts) {
+        this.stats.gamesPlayed++;
+        
+        if (won) {
+            this.stats.gamesWon++;
+            this.stats.currentStreak++;
+            this.stats.maxStreak = Math.max(this.stats.maxStreak, this.stats.currentStreak);
+            
+            // Update guess distribution
+            if (!this.stats.guessDistribution[attempts]) {
+                this.stats.guessDistribution[attempts] = 0;
+            }
+            this.stats.guessDistribution[attempts]++;
+        } else {
+            this.stats.currentStreak = 0;
+        }
+        
+        this.saveStats();
+    }
+
     getCurrentGuess() {
         let guess = '';
         for (let col = 0; col < this.wordLength; col++) {
@@ -353,11 +600,45 @@ class WordleGame {
     }
 
     async isValidWord(word) {
-        try {
-            const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word.toLowerCase()}`);
-            return res.ok;
-        } catch {
+        // Basic validation first
+        if (!word || word.length !== 5 || !/^[A-Z]{5}$/.test(word)) {
             return false;
+        }
+
+        // Check against our fallback list first (faster)
+        const fallbackList = [
+            "APPLE", "BEACH", "CHAIR", "DREAM", "EARTH", 
+            "FLAME", "GRAPE", "HEART", "IMAGE", "JUICE", 
+            "KNIFE", "LEMON", "MUSIC", "NIGHT", "OCEAN", 
+            "PEACE", "QUEEN", "RADIO", "SMILE", "TABLE",
+            "UNITY", "VOICE", "WATER", "YOUTH", "ZEBRA", 
+            "BRAIN", "CLOUD", "DANCE", "EAGLE", "FROST", 
+            "GHOST", "HAPPY", "IVORY", "JOKER", "KARMA", 
+            "LIGHT", "MAGIC", "NORTH", "OPERA", "PIANO", 
+            "QUIET", "RIVER", "SPACE", "TIGER", "VIBES", 
+            "WINDY", "YACHT", "ZESTY"
+        ];
+        
+        if (fallbackList.includes(word)) {
+            return true;
+        }
+
+        try {
+            // Check with dictionary API with timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+            
+            const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word.toLowerCase()}`, {
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            return res.ok;
+        } catch (error) {
+            console.warn(`Dictionary API check failed for "${word}":`, error.message);
+            // If API fails, we'll be more permissive and accept the word
+            // This prevents the game from breaking due to API issues
+            return true;
         }
     }
 
@@ -467,6 +748,47 @@ class WordleGame {
 
     hideGameOverModal() {
         this.gameOverModal.style.display = 'none';
+    }
+
+    getGameModeName() {
+        const modes = {
+            1: 'Wordle',
+            2: 'Duordle', 
+            4: 'Quordle',
+            8: 'Octordle'
+        };
+        return modes[this.boardCount] || 'Unknown';
+    }
+
+    clearKeyboardState() {
+        // Clear keyboard colors
+        const keys = this.keyboard.querySelectorAll('.key');
+        keys.forEach(key => {
+            key.classList.remove('correct', 'present', 'absent');
+        });
+    }
+
+    toggleHardMode() {
+        this.settings.hardMode = !this.settings.hardMode;
+        this.saveSettings();
+        this.updateNavbarButtons();
+        
+        // Show feedback
+        const message = this.settings.hardMode ? 'Hard Mode enabled!' : 'Hard Mode disabled!';
+        this.showMessage(message, 'info');
+    }
+
+    updateNavbarButtons() {
+        const hardModeBtn = document.getElementById('hard-mode-btn');
+        
+        // Update hard mode button
+        if (this.settings.hardMode) {
+            hardModeBtn.classList.add('active');
+            hardModeBtn.querySelector('.nav-icon').textContent = '🎯';
+        } else {
+            hardModeBtn.classList.remove('active');
+            hardModeBtn.querySelector('.nav-icon').textContent = '🎯';
+        }
     }
 }
 
