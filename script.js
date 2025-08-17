@@ -723,7 +723,7 @@ class WordleGame {
     }
 
     updateAttemptsDisplay() {
-        this.attemptsDisplay.textContent = `Attempts: ${this.currentRow + 1}/${this.maxAttempts}`;
+        this.attemptsDisplay.textContent = `Attempts: ${this.currentRow}/${this.maxAttempts}`;
     }
 
     showMessage(text, type = 'info') {
